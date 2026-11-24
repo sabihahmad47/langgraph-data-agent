@@ -14,7 +14,7 @@ def run_app():
     )
 
     st.title("🤖 Data Assistant")
-    st.caption("Ask questions about your data or anything else about.")
+    st.caption("Ask questions about your data or anything else.")
 
     # Initialize session state
     if "history" not in st.session_state:
