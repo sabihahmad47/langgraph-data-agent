@@ -3,7 +3,6 @@ import mssql_python
 from dotenv import load_dotenv
 import pandas as pd
 from langchain_core.tools import tool
-import time
 
 
 load_dotenv()
@@ -24,7 +23,6 @@ def get_connection():
     return mssql_python.connect(connection_string)
 
     
-
 @tool
 def exec_query(query):
     """Execute SQL queries against Azure SQL to retrieve business data.
@@ -34,7 +32,15 @@ def exec_query(query):
 
     Do not use this tool to retrieve database schema metadata.
     Use get_schema for schema discovery."""
-    conn = get_connection()
+    conn=None
+    for i in range(3):
+        try:
+            conn = get_connection()
+            print("Connected successfully!")
+            break
+        except Exception as e:
+            print(f"Connection failed: {e}")
+    
     cursor = conn.cursor()
     cursor.execute(query)
     columns = [column[0] for column in cursor.description]
@@ -49,7 +55,14 @@ def get_schema():
 
     Use this tool whenever database schema information is required.
     Do not retrieve schema information using exec_query."""
-    conn = get_connection()
+    conn=None
+    for i in range(3):
+        try:
+            conn = get_connection()
+            print("Connected successfully!")
+            break
+        except Exception as e:
+            print(f"Connection failed: {e}")
     cursor = conn.cursor()
     query="""SELECT
         TABLE_SCHEMA,

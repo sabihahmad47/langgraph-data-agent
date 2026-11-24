@@ -6,7 +6,7 @@ from langchain_openai import ChatOpenAI
 from tools.data_analyst_tools import exec_query,get_schema
 from dotenv import load_dotenv
 from langchain_core.messages import HumanMessage, AIMessage, ToolMessage
-
+from tools.pick_llm import pick_llm
 
 load_dotenv()
 #Define model
@@ -28,17 +28,11 @@ def data_analyst_agent():
 
         3. If a SQL query fails, attempt to correct it when possible.
 
-        4. If the request is unrelated to data analysis, or you
-           cannot answer the request using your available data,
-           tools or capabilities, call handoff_to_supervisor
-           explaining why.
+        4. If the user's question is clear answer the question
 
-        5. Do not call handoff_to_supervisor merely because
-           a SQL query initially fails.
-
-        6. Do not fabricate data.
+        5. If the user's question is ambiguous, lacks sufficient context, or requires clarification before performing the analysis REPOND with "clarification_required"
         """
-    llm = ChatOpenAI(model="gpt-6-luna")
+    llm = pick_llm("medium")
     data_analyst_agent=create_agent(model=llm,
                                     tools=[get_schema,exec_query],
                                     system_prompt=system_prompt

@@ -2,6 +2,7 @@ from langchain.agents import create_agent
 from langchain_openai import ChatOpenAI
 from tools.data_export_tools import export_result
 from dotenv import load_dotenv
+from tools.pick_llm import pick_llm
 
 load_dotenv()
 #Define model
@@ -9,7 +10,7 @@ load_dotenv()
 def data_export_agent():
         
     # 1. Initialize the LLM
-    llm = ChatOpenAI(model="gpt-6-luna")
+    llm = pick_llm("medium")
 
     data_export_agent=create_agent(model=llm,
                                     tools=[export_result],

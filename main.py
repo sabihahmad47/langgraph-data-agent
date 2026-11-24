@@ -6,16 +6,26 @@ from langchain_openai import ChatOpenAI
 
 from dotenv import load_dotenv
 from agents.data_analyst_agent import data_analyst_agent
-from langchain_core.messages import AIMessage,HumanMessage
+from langchain_core.messages import AIMessage,HumanMessage,SystemMessage
+from langgraph.types import interrupt
+import sys
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+from tools.data_analyst_validator_tools import get_schema
+from tools.pick_llm import pick_llm
+
 
 load_dotenv()
 
 class SupervisorDecision(BaseModel):
     next_agent:Literal[
-        "data_analyst",
-        "data_reporter",
+        "data_analyst_validator",
         "direct"
     ]
+
+class DataAnalystValidatorDecision(BaseModel):
+    status: Literal["clear","clarification_required"]
+    clarification_question:str
 
 # 1. Define the Graph State
 class ComparisonState(TypedDict):
@@ -26,9 +36,9 @@ class ComparisonState(TypedDict):
     next_agent: str
     answer: str
     history: list
+    status: Optional[str]
+    clarification_question:Optional[str]
 
-# 2. Initialize the LLM
-llm = ChatOpenAI(model="gpt-4.1")
 
 # 3. Supervisor Node
 def supervisor(state: ComparisonState)->ComparisonState:
@@ -45,11 +55,8 @@ def supervisor(state: ComparisonState)->ComparisonState:
 
     Analyze the user's input and history select exactly one route:
 
-    - data_analyst: Questions involving database queries,
+    - data_analyst_validator: Questions involving database queries,
       calculations, data analysis or business data.
-
-    - data_reporter: Requests involving charts,
-      visualizations, dashboards or reports.
 
     - direct: Greetings, general questions, explanations
       or requests that don't require data analysis or reporting.
@@ -61,18 +68,103 @@ def supervisor(state: ComparisonState)->ComparisonState:
     {history_text}
 
     Respond with ONLY one of these values:
-    data_analyst
-    data_reporter
+    data_analyst_validator
     direct
     """
 
     print("\n===============================Invocation of Supervisor in progress=======================================\n")
+    llm = pick_llm("medium")
     result = llm.with_structured_output(SupervisorDecision).invoke(prompt)
     
 
     state["next_agent"] = result.next_agent.strip().lower()
     
 
+    return state
+
+
+def data_analyst_validator(state:ComparisonState)->ComparisonState:
+    schema=get_schema()
+    messages = state["history"] +  [HumanMessage(content=state["user_input"])]
+
+    history_text = "\n".join(
+        f"\n{msg.type}: {msg.content}"
+        for msg in messages)
+    
+    # 1. Initialize the LLM
+    system_prompt = f"""
+    You are an expert Data Analyst Validator Agent.
+
+    Your responsibility is to evaluate whether the user's question
+    is sufficiently clear to perform accurate business data analysis.
+
+    You will be provided with the user's question, relevant database
+    schema, business definitions and conversation history.
+
+    Rules:
+
+    1. If the user's question is clear and can be interpreted
+    without making assumptions, respond with exactly:
+    clear
+
+    2. If the user's question is ambiguous, lacks essential context,
+    or requires clarification, respond with:
+    clarification_required: <specific clarification question>
+
+    3. Ask only one specific clarification question at a time.
+
+    4. Do not request information that is already available
+    in the database schema, business definitions or conversation history.
+
+    5. Do not make assumptions about business metrics, date ranges,
+    filters or dimensions when they materially affect the result.
+
+    6. Do not generate SQL queries or execute database tools.
+    Your only responsibility is question validation.
+
+    Use schema
+    {schema}
+
+    Conversation History 
+    {history_text}
+
+
+    """
+
+    llm = ChatOpenAI(model="gpt-4.1")
+
+    data_analyst_validator=llm.with_structured_output(DataAnalystValidatorDecision)
+
+
+    print("\n===============================Invocation of Data Analyst Validator in progress=======================================\n")
+    decision = data_analyst_validator.invoke([
+    SystemMessage(content=system_prompt),
+    HumanMessage(content=state["user_input"])
+    ])
+
+    print("\n==============================Decision by Data Analyst Validator======================================================\n")
+    state["status"]=decision.status
+    state["clarification_question"]=decision.clarification_question
+
+    print(f"State:{state["status"]}")
+    print(f"Clarification Question:{state["clarification_question"]}")
+
+    if state["status"]=="clarification_required":
+        
+        # user_clarification = interrupt(
+        #     state["clarification_question"]
+        # )
+        
+        # state["user_input"] = (
+        #     state["user_input"]
+        #     + "\nUser clarification: "
+        #     + user_clarification)
+        state["answer"]=state["clarification_question"]
+        state["history"]=messages+[AIMessage(content=state["clarification_question"])]
+
+    else:
+        print("...............................Clear Passing to Data Analyst.......................................................")    
+    
     return state
 
 def data_analyst(state:ComparisonState)->ComparisonState:
@@ -149,6 +241,7 @@ def direct(state: ComparisonState)->ComparisonState:
         HumanMessage(content=state["user_input"])
     ]
 
+    llm=pick_llm("low")
     response = llm.invoke(messages)
 
     print("\n===============================Invocation of Direct Analyst in progress=================================\n")
@@ -179,20 +272,29 @@ def direct(state: ComparisonState)->ComparisonState:
 def route_supervisor(state:ComparisonState):
     return state["next_agent"]
 
+def route_data_analyst_validator(state:ComparisonState):
+    if state["status"]=="clarification_required":
+        return END
+    else:
+        return "data_analyst"
+
 
 # 6. Build the Graph
 graph = StateGraph(ComparisonState)
 
 #7. Create Nodes
 graph.add_node("supervisor", supervisor)
+graph.add_node("data_analyst_validator", data_analyst_validator)
 graph.add_node("data_analyst", data_analyst)
 graph.add_node("direct", direct)
 
 #Create Edges
 graph.add_edge(START, "supervisor")
 
-graph.add_conditional_edges("supervisor",route_supervisor,{"data_analyst":"data_analyst","direct":"direct"})
+graph.add_conditional_edges("supervisor",route_supervisor,{"data_analyst_validator":"data_analyst_validator","direct":"direct"})
+graph.add_conditional_edges("data_analyst_validator",route_data_analyst_validator,{"data_analyst":"data_analyst",END:END})
 
+#graph.add_edge("data_analyst_validator", "data_analyst")
 graph.add_edge("data_analyst", END)
 graph.add_edge("direct", END)
 
