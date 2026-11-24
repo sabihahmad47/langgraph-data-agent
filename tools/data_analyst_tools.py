@@ -19,23 +19,8 @@ def get_connection(max_retries=3):
         "Encrypt=yes;"
         "TrustServerCertificate=no;"
     )
+    return mssql_python.connect(connection_string)
 
-    for attempt in range(max_retries):
-
-        try:
-            return mssql_python.connect(connection_string)
-
-        except Exception as e:
-
-            if attempt == max_retries - 1:
-                raise
-
-            wait_time = 2 ** (attempt + 1)
-
-            print(f"Connection failed: {e}")
-            print(f"Retrying in {wait_time} seconds...")
-
-            time.sleep(wait_time)
 
 
 @tool
