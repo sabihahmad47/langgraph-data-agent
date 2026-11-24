@@ -8,20 +8,22 @@ import time
 
 load_dotenv()
 
-def get_connection(max_retries=3):
+def get_connection():
 
     connection_string = (
-        f"Server={os.getenv('AZURE_SQL_SERVER')};"
-        f"Database={os.getenv('AZURE_SQL_DATABASE')};"
-        "Authentication=ActiveDirectoryServicePrincipal;"
-        f"UID={os.getenv('AZURE_CLIENT_ID')};"
-        f"PWD={os.getenv('AZURE_CLIENT_SECRET')};"
-        "Encrypt=yes;"
-        "TrustServerCertificate=no;"
+    f"Server=tcp:{os.getenv('AZURE_SQL_SERVER')},1433;"
+    f"Database={os.getenv('AZURE_SQL_DATABASE')};"
+    f"Authentication=ActiveDirectoryServicePrincipal;"
+    f"UID={os.getenv('AZURE_CLIENT_ID')};"
+    f"PWD={os.getenv('AZURE_CLIENT_SECRET')};"
+    f"Encrypt=yes;"
+    f"TrustServerCertificate=no;"
     )
+
+    
     return mssql_python.connect(connection_string)
 
-
+    
 
 @tool
 def exec_query(query):
