@@ -7,11 +7,18 @@ from main import finalgraph
 
 def run_app():
 
+
     st.set_page_config(
         page_title="Data Assistant",
         page_icon="🤖",
         layout="wide"
     )
+
+
+    print("APPLICATION EXECUTED", flush=True)
+
+    if st.button("Test logging"):
+        print("BUTTON CLICKED", flush=True)
 
     st.title("🤖 Data Assistant")
     st.caption("Ask questions about your data or anything else.")
