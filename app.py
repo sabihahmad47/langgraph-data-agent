@@ -21,7 +21,7 @@ def run_app():
         print("BUTTON CLICKED", flush=True)
 
     st.title("🤖 Data Assistant")
-    st.caption("Ask questions about your data or anything else.")
+    st.caption("Ask questions about your data or anything else....")
 
     # Initialize session state
     if "history" not in st.session_state:
