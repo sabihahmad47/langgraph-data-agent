@@ -36,6 +36,7 @@ def exec_query(query):
     for i in range(3):
         try:
             conn = get_connection()
+            print("\nTool Calling Execute Query\n")
             print("Connected successfully!")
             break
         except Exception as e:
@@ -59,6 +60,7 @@ def get_schema():
     for i in range(3):
         try:
             conn = get_connection()
+            print("\nTool Calling Get Schema\n")
             print("Connected successfully!")
             break
         except Exception as e:

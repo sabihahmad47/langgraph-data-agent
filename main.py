@@ -19,13 +19,13 @@ load_dotenv()
 
 class SupervisorDecision(BaseModel):
     next_agent:Literal[
-        "data_analyst_validator",
+        "data_analyst",
         "direct"
     ]
 
-class DataAnalystValidatorDecision(BaseModel):
-    status: Literal["clear","clarification_required"]
-    clarification_question:str
+# class DataAnalystValidatorDecision(BaseModel):
+#     status: Literal["clear","clarification_required"]
+#     clarification_question:str
 
 # 1. Define the Graph State
 class ComparisonState(TypedDict):
@@ -36,13 +36,43 @@ class ComparisonState(TypedDict):
     next_agent: str
     answer: str
     history: list
+    history_to_be_displayed: list
     status: Optional[str]
     clarification_question:Optional[str]
+    question_curator_prompt: str
 
+
+def question_curator(state:ComparisonState)->ComparisonState:
+    messages=state["history"]+[HumanMessage(content=state["user_input"])]
+    new_messages=state["history_to_be_displayed"]+[HumanMessage(content=state["user_input"])]
+    history_text = "\n".join(
+        f"\n{msg.type}: {msg.content}"
+        for msg in messages)
+    llm=pick_llm("low")
+    prompt=f"""You are a Query Curator for an AI-powered data analytics application.
+    Your sole responsibility is to rewrite and enrich the user's question into a clear and precise question.
+    Instructions:
+    1. Understand the user's original intent
+    2. User relevant converstion history to understand references.
+    3. Return only the curated question.Do not include explainations,analysis, headings or commentary
+
+    Conversation history:
+    {history_text}
+"""
+    print("\n===============================Invocation of Question Curator in Progress=======================================\n")
+    question_curator=llm.invoke([SystemMessage(content=prompt)
+                               ,HumanMessage(content=state["user_input"])])
+
+    state["question_curator_prompt"]=question_curator.content
+    state["history"]=messages+[AIMessage(content=question_curator.content)]
+    state["history_to_be_displayed"]=new_messages
+
+    print(f"Final Question : {state["question_curator_prompt"]}")
+    return state
 
 # 3. Supervisor Node
 def supervisor(state: ComparisonState)->ComparisonState:
-    messages=state["history"]+[HumanMessage(content=state["user_input"])]
+    messages=state["history"]+[HumanMessage(content=state["question_curator_prompt"])]
 
     history_text = "\n".join(
     f"\n{msg.type}: {msg.content}"
@@ -55,126 +85,131 @@ def supervisor(state: ComparisonState)->ComparisonState:
 
     Analyze the user's input and history select exactly one route:
 
-    - data_analyst_validator: Questions involving database queries,
+    - data_analyst: Questions involving database queries,
       calculations, data analysis or business data.
 
     - direct: Greetings, general questions, explanations
       or requests that don't require data analysis or reporting.
 
     User Input:
-    {state["user_input"]}
+    {state["question_curator_prompt"]}
 
     Conversation History:
     {history_text}
 
     Respond with ONLY one of these values:
-    data_analyst_validator
+    data_analyst
     direct
     """
 
     print("\n===============================Invocation of Supervisor in progress=======================================\n")
     llm = pick_llm("medium")
     result = llm.with_structured_output(SupervisorDecision).invoke(prompt)
+
     
 
     state["next_agent"] = result.next_agent.strip().lower()
-    
+    print("\n===============================Agent Calling=======================================\n")
+    print(f"Calling:{state["next_agent"]}")
 
     return state
 
 
-def data_analyst_validator(state:ComparisonState)->ComparisonState:
-    schema=get_schema()
-    messages = state["history"] +  [HumanMessage(content=state["user_input"])]
+# def data_analyst_validator(state:ComparisonState)->ComparisonState:
+#     schema=get_schema()
+#     messages = state["history"] +  [HumanMessage(content=state["question_curator_prompt"])]
 
-    history_text = "\n".join(
-        f"\n{msg.type}: {msg.content}"
-        for msg in messages)
+#     history_text = "\n".join(
+#         f"\n{msg.type}: {msg.content}"
+#         for msg in messages)
     
-    # 1. Initialize the LLM
-    system_prompt = f"""
-    You are an expert Data Analyst Validator Agent.
+#     # 1. Initialize the LLM
+#     system_prompt = f"""
+#     You are an expert Data Analyst Validator Agent.
 
-    Your responsibility is to evaluate whether the user's question
-    is sufficiently clear to perform accurate business data analysis.
+#     Your responsibility is to evaluate whether the user's question
+#     is sufficiently clear to perform accurate business data analysis.
 
-    You will be provided with the user's question, relevant database
-    schema, business definitions and conversation history.
+#     You will be provided with the user's question, relevant database
+#     schema, business definitions and conversation history.
 
-    Rules:
+#     Rules:
 
-    1. If the user's question is clear and can be interpreted
-    without making assumptions, respond with exactly:
-    clear
+#     1. If the user's question is clear and can be interpreted
+#     without making assumptions, respond with exactly:
+#     clear
 
-    2. If the user's question is ambiguous, lacks essential context,
-    or requires clarification, respond with:
-    clarification_required: <specific clarification question>
+#     2. If the user's question is ambiguous, lacks essential context,
+#     or requires clarification, respond with:
+#     clarification_required: <specific clarification question>
 
-    3. Ask only one specific clarification question at a time.
+#     3. Ask only one specific clarification question at a time.
 
-    4. Do not request information that is already available
-    in the database schema, business definitions or conversation history.
+#     4. Do not request information that is already available
+#     in the database schema, business definitions or conversation history.
 
-    5. Do not make assumptions about business metrics, date ranges,
-    filters or dimensions when they materially affect the result.
+#     5. Do not make assumptions about business metrics, date ranges,
+#     filters or dimensions when they materially affect the result.
 
-    6. Do not generate SQL queries or execute database tools.
-    Your only responsibility is question validation.
+#     6. Do not generate SQL queries or execute database tools.
+#     Your only responsibility is question validation.
 
-    Use schema
-    {schema}
+#     Use schema
+#     {schema}
 
-    Conversation History 
-    {history_text}
-
-
-    """
-
-    llm = ChatOpenAI(model="gpt-4.1")
-
-    data_analyst_validator=llm.with_structured_output(DataAnalystValidatorDecision)
+#     Conversation History 
+#     {history_text}
 
 
-    print("\n===============================Invocation of Data Analyst Validator in progress=======================================\n")
-    decision = data_analyst_validator.invoke([
-    SystemMessage(content=system_prompt),
-    HumanMessage(content=state["user_input"])
-    ])
+#     """
 
-    print("\n==============================Decision by Data Analyst Validator======================================================\n")
-    state["status"]=decision.status
-    state["clarification_question"]=decision.clarification_question
+#     llm = pick_llm("medium")
 
-    print(f"State:{state["status"]}")
-    print(f"Clarification Question:{state["clarification_question"]}")
+#     data_analyst_validator=llm.with_structured_output(DataAnalystValidatorDecision)
 
-    if state["status"]=="clarification_required":
+
+#     print("\n===============================Invocation of Data Analyst Validator in progress=======================================\n")
+#     decision = data_analyst_validator.invoke([
+#     SystemMessage(content=system_prompt),
+#     HumanMessage(content=state["user_input"])
+#     ])
+
+#     print("\n==============================Decision by Data Analyst Validator======================================================\n")
+#     state["status"]=decision.status
+#     state["clarification_question"]=decision.clarification_question
+
+#     print(f"State:{state["status"]}")
+#     print(f"Clarification Question:{state["clarification_question"]}")
+
+#     if state["status"]=="clarification_required":
         
-        # user_clarification = interrupt(
-        #     state["clarification_question"]
-        # )
+#         # user_clarification = interrupt(
+#         #     state["clarification_question"]
+#         # )
         
-        # state["user_input"] = (
-        #     state["user_input"]
-        #     + "\nUser clarification: "
-        #     + user_clarification)
-        state["answer"]=state["clarification_question"]
-        state["history"]=messages+[AIMessage(content=state["clarification_question"])]
+#         # state["user_input"] = (
+#         #     state["user_input"]
+#         #     + "\nUser clarification: "
+#         #     + user_clarification)
+#         state["answer"]=state["clarification_question"]
+#         state["history"]=messages+[AIMessage(content=state["clarification_question"])]
+#         state["history_to_be_displayed"]=messages+[AIMessage(content=state["clarification_question"])]
 
-    else:
-        print("...............................Clear Passing to Data Analyst.......................................................")    
+#     else:
+#         print("...............................Clear Passing to Data Analyst.......................................................")    
     
-    return state
+#     return state
 
 def data_analyst(state:ComparisonState)->ComparisonState:
     agent=data_analyst_agent()
 
-    messages = state["history"] +  [HumanMessage(content=state["user_input"])]
+    messages = state["history"] +  [HumanMessage(content=state["question_curator_prompt"])]
+    new_messages=state["history_to_be_displayed"]
+
+    print("\n============================Invocation of Data Analyst in progress================================\n")
     
     data_analyst_response=agent.invoke({"messages":messages})
 
-    print("\n============================Invocation of Data Analyst in progress================================\n")
 
     total_input_tokens = 0
     total_output_tokens = 0
@@ -223,6 +258,7 @@ def data_analyst(state:ComparisonState)->ComparisonState:
     
     state["answer"]=data_analyst_response["messages"][-1].content[-1]["text"]
     state["history"]=messages+[AIMessage(content=data_analyst_response["messages"][-1].content[-1]["text"])]
+    state["history_to_be_displayed"]=new_messages+[AIMessage(content=data_analyst_response["messages"][-1].content[-1]["text"])]
 
     datanalysthistory = "\n".join(
             f"\n{msg.type}: {msg.content}"
@@ -238,8 +274,10 @@ def data_analyst(state:ComparisonState)->ComparisonState:
 # 5. Direct Response Node
 def direct(state: ComparisonState)->ComparisonState:
     messages = state["history"] + [
-        HumanMessage(content=state["user_input"])
+        HumanMessage(content=state["question_curator_prompt"])
     ]
+
+    new_messages=state["history_to_be_displayed"]
 
     llm=pick_llm("low")
     response = llm.invoke(messages)
@@ -257,6 +295,7 @@ def direct(state: ComparisonState)->ComparisonState:
 
     state["answer"]=response.content
     state["history"]  = messages + [AIMessage(content=response.content)]
+    state["history_to_be_displayed"]  = new_messages + [AIMessage(content=response.content)]
 
 
     directhistory = "\n".join(
@@ -272,29 +311,28 @@ def direct(state: ComparisonState)->ComparisonState:
 def route_supervisor(state:ComparisonState):
     return state["next_agent"]
 
-def route_data_analyst_validator(state:ComparisonState):
-    if state["status"]=="clarification_required":
-        return END
-    else:
-        return "data_analyst"
+# def route_data_analyst_validator(state:ComparisonState):
+#     if state["status"]=="clarification_required":
+#         return END
+#     else:
+#         return "data_analyst"
 
 
 # 6. Build the Graph
 graph = StateGraph(ComparisonState)
 
 #7. Create Nodes
+graph.add_node("question_curator", question_curator)
 graph.add_node("supervisor", supervisor)
-graph.add_node("data_analyst_validator", data_analyst_validator)
+#graph.add_node("data_analyst_validator", data_analyst_validator)
 graph.add_node("data_analyst", data_analyst)
 graph.add_node("direct", direct)
 
 #Create Edges
-graph.add_edge(START, "supervisor")
-
-graph.add_conditional_edges("supervisor",route_supervisor,{"data_analyst_validator":"data_analyst_validator","direct":"direct"})
-graph.add_conditional_edges("data_analyst_validator",route_data_analyst_validator,{"data_analyst":"data_analyst",END:END})
-
-#graph.add_edge("data_analyst_validator", "data_analyst")
+graph.add_edge(START, "question_curator")
+graph.add_edge("question_curator","supervisor")
+graph.add_conditional_edges("supervisor",route_supervisor,{"data_analyst":"data_analyst","direct":"direct"})
+#graph.add_conditional_edges("data_analyst_validator",route_data_analyst_validator,{"data_analyst":"data_analyst",END:END})
 graph.add_edge("data_analyst", END)
 graph.add_edge("direct", END)
 

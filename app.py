@@ -20,6 +20,9 @@ def run_app():
     if "history" not in st.session_state:
         st.session_state.history = []
 
+    if "fullhistory" not in st.session_state:
+        st.session_state.fullhistory=[]
+
     #if "chat_display" not in st.session_state:
     #    st.session_state.chat_display = []
 
@@ -37,6 +40,8 @@ def run_app():
             continue
         with st.chat_message(role):
             st.markdown(message.content)
+
+            
 
     # Chat input
     question = st.chat_input("Ask me anything...")
@@ -62,7 +67,8 @@ def run_app():
                     "export": None,
                     "next_agent": "",
                     "answer": "",
-                    "history": st.session_state.history
+                    "history":st.session_state.fullhistory,
+                    "history_to_be_displayed": st.session_state.history
                 })
 
                 answer = result["answer"]
@@ -75,7 +81,10 @@ def run_app():
         # )
 
         # Store graph history
-        st.session_state.history = result["history"]
+        st.session_state.history = result["history_to_be_displayed"]
+
+        #Store Full History
+        st.session_state.fullhistory = result["history"]
 
         st.rerun()
 
